@@ -176,3 +176,10 @@ uploads/*
 .vscode/
 .env.*
 """
+
+"""
+requirements.txt
+render.yaml
+README.md
+.gitignore
+"""
