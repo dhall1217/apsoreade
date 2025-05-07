@@ -88,7 +88,7 @@ if __name__ == '__main__':
 </html>
 """
 
-# requirements.txt
+requirements.txt
 """
 flask
 pandas
