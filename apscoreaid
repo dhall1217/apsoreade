@@ -1,0 +1,178 @@
+# ap_score_aid/app.py
+from flask import Flask, render_template, request, redirect, url_for, send_file
+import pandas as pd
+import os
+from werkzeug.utils import secure_filename
+from io import BytesIO
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
+# Util Function: Clean + Analyze CSV
+def analyze_csv(filepath):
+    df = pd.read_csv(filepath)
+    df = df[df["Assessment Name"].str.contains("Quiz|Assessment", case=False, na=False)]
+    df["Percent Correct"] = pd.to_numeric(
+        df["Percent Correct (teacher scored)"].astype(str).str.replace('%', '', regex=False), errors='coerce')
+    df.dropna(subset=["Percent Correct"], inplace=True)
+    pivot = df.pivot_table(index="External Student ID", columns="Assessment Name",
+                           values="Percent Correct", aggfunc="mean")
+    pivot["Average Score"] = pivot.mean(axis=1)
+    pivot["Likely 3-5"] = (pivot["Average Score"] >= 70).astype(int)
+    threshold = 70
+    student_weaknesses = pivot.drop(columns=["Average Score", "Likely 3-5"], errors='ignore') < threshold
+    study_guides = pivot[student_weaknesses].copy()
+    study_guides = study_guides.where(student_weaknesses, "")
+    return pivot, study_guides
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    file = request.files['file']
+    if file:
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        scores, guides = analyze_csv(filepath)
+        scores_html = scores.to_html(classes='table table-striped', border=0)
+        guides_html = guides.to_html(classes='table table-bordered', border=0)
+        return render_template('dashboard.html', scores_html=scores_html, guides_html=guides_html)
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+# templates/index.html
+"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Upload AP CSV</title>
+</head>
+<body>
+  <h1>Upload Student Performance CSV</h1>
+  <form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file">
+    <input type="submit" value="Upload and Analyze">
+  </form>
+</body>
+</html>
+"""
+
+# templates/dashboard.html
+"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <style>
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { padding: 8px; border: 1px solid #ccc; }
+    h2 { margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <h1>Class Performance Overview</h1>
+  {{ scores_html|safe }}
+  <h2>Personalized Study Guide Suggestions</h2>
+  {{ guides_html|safe }}
+</body>
+</html>
+"""
+
+# requirements.txt
+"""
+flask
+pandas
+werkzeug
+gunicorn
+"""
+
+# render.yaml
+"""
+services:
+  - type: web
+    name: apscoreaid
+    env: python
+    buildCommand: ""
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+"""
+
+# README.md
+"""
+# APScoreAid: Predict, Personalize, and Prepare for AP Success
+
+APScoreAid is a web-based data analysis tool designed by an AP Computer Science teacher to help other educators predict student success on AP exams and generate personalized study guides using assignment data from platforms like CodeHS and AP Classroom.
+
+## Features
+- Upload and process CSV files from AP platforms
+- Clean and analyze performance data automatically
+- Predict likelihood of students scoring a 3-5 on AP exams
+- Generate personalized concept review guides
+- Export class dashboards and student-level reports
+
+## Technologies Used
+- Flask
+- Pandas
+- Gunicorn
+- HTML/CSS Templates
+
+## Getting Started
+1. Clone this repository:
+```bash
+git clone https://github.com/yourusername/apscoreaid.git
+cd apscoreaid
+```
+
+2. Install requirements:
+```bash
+pip install -r requirements.txt
+```
+
+3. Run the app locally:
+```bash
+python app.py
+```
+
+4. Visit `http://localhost:5000` in your browser to use the app.
+
+## Deploying on Render
+- Push the repo to GitHub
+- Link it on Render.com
+- Use `render.yaml` for setup (or fill in manually)
+- Set the start command to `gunicorn app:app`
+
+## Author
+Demarion Hall — AP CS Teacher & EdTech Innovator
+
+## License
+This project is open-source and may be licensed or expanded with credit.
+"""
+
+# .gitignore
+"""
+__pycache__/
+*.pyc
+instance/
+.env
+uploads/*
+.DS_Store
+*.sqlite3
+*.log
+*.pkl
+*.db
+.idea/
+.vscode/
+.env.*
+"""
